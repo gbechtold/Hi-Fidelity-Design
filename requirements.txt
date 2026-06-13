@@ -1,0 +1,5 @@
+# Core (idml_adapter + diff): standard library only — no install needed.
+# Optional adapters:
+#   pdf_adapter:    pdfminer.six
+#   png_cv_adapter: pillow, opencv-python, pytesseract (+ tesseract binary)
+#   dom_adapter:    playwright (node)  ->  npm i playwright

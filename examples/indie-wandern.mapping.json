@@ -1,0 +1,12 @@
+{
+  "_comment": "Example mapping for the Indie Wandern home page: design element (by text or IDML id) -> implementation CSS selector. scale 'auto' = implCanvasWidth / designCanvasWidth.",
+  "scale": "auto",
+  "pairs": [
+    { "design": "wandern macht glücklich", "impl": ".iw-hero__title" }
+  ],
+  "tolerances": {
+    "geometry_pct": [2, 5],
+    "fontsize_px": [2, 5],
+    "deltaE": [2, 5]
+  }
+}

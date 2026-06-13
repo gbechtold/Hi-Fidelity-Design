@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""hifi — Hi-Fidelity-Design CLI. Thin orchestrator over adapters + core."""
+import argparse, os, subprocess, sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, 'core'))
+
+
+def cmd_extract(a):
+    adapters = {
+        'idml': ['python3', os.path.join(ROOT, 'adapters', 'idml_adapter.py')],
+        'dom':  ['node', os.path.join(ROOT, 'adapters', 'dom_adapter.js')],
+        'figma': ['python3', os.path.join(ROOT, 'adapters', 'figma_adapter.py')],
+        'pdf':  ['python3', os.path.join(ROOT, 'adapters', 'pdf_adapter.py')],
+        'png':  ['python3', os.path.join(ROOT, 'adapters', 'png_cv_adapter.py')],
+    }
+    if a.adapter not in adapters:
+        sys.exit(f'unknown adapter: {a.adapter}')
+    cmd = adapters[a.adapter] + a.rest
+    sys.exit(subprocess.call(cmd))
+
+
+def cmd_diff(a):
+    import hifi_core
+    result, md = hifi_core.run_diff(a.design, a.impl, a.map, a.out)
+    print(md)
+    fails = sum(1 for r in result['rows'] if r['worst'] == 'fail')
+    print(f'\nWritten: {a.out}/diff.json + REPORT.md')
+    sys.exit(1 if fails else 0)
+
+
+def main():
+    ap = argparse.ArgumentParser(prog='hifi', description='Hi-Fidelity-Design: design ↔ implementation audit')
+    sub = ap.add_subparsers(dest='cmd', required=True)
+
+    e = sub.add_parser('extract', help='run a source/target adapter -> IR')
+    e.add_argument('--adapter', required=True, choices=['idml', 'dom', 'figma', 'pdf', 'png'])
+    e.add_argument('rest', nargs=argparse.REMAINDER, help='args passed to the adapter (e.g. --in --out --url --selectors)')
+    e.set_defaults(fn=cmd_extract)
+
+    d = sub.add_parser('diff', help='diff design IR vs implementation IR')
+    d.add_argument('design'); d.add_argument('impl')
+    d.add_argument('--map', required=True)
+    d.add_argument('--out', default='audit')
+    d.set_defaults(fn=cmd_diff)
+
+    a = ap.parse_args()
+    a.fn(a)
+
+
+if __name__ == '__main__':
+    main()

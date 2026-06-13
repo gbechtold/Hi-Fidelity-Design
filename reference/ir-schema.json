@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/gbechtold/Hi-Fidelity-Design/ir-schema.json",
+  "title": "Hi-Fidelity-Design Intermediate Representation (IR)",
+  "description": "The common language every adapter emits. Design sources and implementation sources both reduce to this. The diff engine only ever consumes IR.",
+  "type": "object",
+  "required": ["meta", "elements"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["source", "unit"],
+      "properties": {
+        "source": { "type": "string", "description": "adapter id, e.g. idml | figma | pdf | png-cv | dom" },
+        "side": { "enum": ["design", "implementation"] },
+        "unit": { "enum": ["pt", "px"], "description": "native unit of bounds before normalization" },
+        "canvasWidth": { "type": "number", "description": "artboard/viewport width in native unit — the scale anchor" },
+        "canvasHeight": { "type": "number" },
+        "generatedAt": { "type": "string" }
+      }
+    },
+    "elements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "type", "bounds"],
+        "properties": {
+          "id": { "type": "string", "description": "stable id; for design = layer/frame id or name, for impl = selector" },
+          "type": { "enum": ["text", "box", "image"] },
+          "name": { "type": "string", "description": "human label" },
+          "bounds": {
+            "type": "object",
+            "description": "axis-aligned bounding box in native unit; y may be absolute or anchor-relative (see normalize)",
+            "required": ["x", "y", "w", "h"],
+            "properties": {
+              "x": { "type": "number" }, "y": { "type": "number" },
+              "w": { "type": "number" }, "h": { "type": "number" }
+            }
+          },
+          "typography": {
+            "type": "object",
+            "properties": {
+              "fontFamily": { "type": "string" },
+              "fontStyle": { "type": "string" },
+              "fontSize": { "type": "number", "description": "native unit" },
+              "lineHeight": { "type": "number", "description": "native unit (absolute), or 0 for auto" },
+              "letterSpacing": { "type": "number", "description": "em*1000 (tracking) or px — normalized later" },
+              "weight": { "type": ["number", "string"] },
+              "transform": { "type": "string" },
+              "align": { "type": "string" }
+            }
+          },
+          "color": {
+            "type": "object",
+            "properties": {
+              "fill": { "type": "string", "description": "#RRGGBB" },
+              "opacity": { "type": "number" }
+            }
+          },
+          "text": { "type": "string", "description": "text content (text elements)" },
+          "radius": { "type": "number" },
+          "fidelity": {
+            "type": "object",
+            "description": "per-property provenance so the report never overclaims",
+            "properties": {
+              "bounds": { "enum": ["exact", "heuristic", "manual"] },
+              "typography": { "enum": ["exact", "heuristic", "manual"] },
+              "color": { "enum": ["exact", "heuristic", "manual"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}
