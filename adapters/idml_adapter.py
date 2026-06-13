@@ -203,6 +203,15 @@ def extract(idml_path):
                             el['fidelity']['color'] = cfid
                 elements.append(el)
 
+    # Bounds canvas-relativ machen (Origin = top-left-most Element) → direkt auf
+    # ein bei (0,0) startendes PDF-Raster legbar. Größen (w,h) bleiben unberührt.
+    if elements:
+        ox = min(e['bounds']['x'] for e in elements)
+        oy = min(e['bounds']['y'] for e in elements)
+        for e in elements:
+            e['bounds']['x'] = round(e['bounds']['x'] - ox, 2)
+            e['bounds']['y'] = round(e['bounds']['y'] - oy, 2)
+
     return {
         'meta': {'source': 'idml', 'side': 'design', 'unit': 'pt',
                  'canvasWidth': round(canvas_w, 2) if canvas_w else None,

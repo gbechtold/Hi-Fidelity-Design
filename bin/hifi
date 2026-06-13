@@ -29,6 +29,77 @@ def cmd_diff(a):
     sys.exit(1 if fails else 0)
 
 
+def cmd_run(a):
+    """End-to-end: extract both sides, diff, rasterize+annotate both, write run folder, print summary."""
+    import hifi_core, json, datetime
+    stamp = datetime.datetime.now().strftime('%y%m%d-%H%M')
+    folder = os.path.abspath(os.path.join(a.out_base, f'{stamp}-{a.project}'))
+    os.makedirs(folder, exist_ok=True)
+    mapping = json.load(open(a.map, encoding='utf-8'))
+    selectors = ','.join(p['impl'] for p in mapping.get('pairs', []))
+
+    # ① design IR (IDML)
+    subprocess.check_call(['python3', os.path.join(ROOT, 'adapters', 'idml_adapter.py'),
+                           '--in', a.design_idml, '--out', os.path.join(folder, 'design.ir.json')])
+    design_ir = json.load(open(os.path.join(folder, 'design.ir.json'), encoding='utf-8'))
+    width = a.width or int(round(design_ir['meta']['canvasWidth'] or 1920))
+
+    # ② implementation IR (DOM)
+    dom = ['node', os.path.join(ROOT, 'adapters', 'dom_adapter.js'), '--url', a.url,
+           '--selectors', selectors, '--width', str(width), '--out', os.path.join(folder, 'impl.ir.json')]
+    if a.basic_auth: dom += ['--basic-auth', a.basic_auth]
+    subprocess.check_call(dom)
+
+    # ③ diff
+    result, _ = hifi_core.run_diff(os.path.join(folder, 'design.ir.json'),
+                                   os.path.join(folder, 'impl.ir.json'), a.map, folder)
+
+    # ④ rasterize design PDF (1pt -> 1px at canvas width)
+    raster = os.path.join(folder, '_design')
+    subprocess.check_call(['pdftoppm', '-png', '-scale-to-x', str(width), '-scale-to-y', '-1',
+                           '-singlefile', a.design_pdf, raster])
+
+    # ⑤ annotate both
+    dboxes, iboxes = hifi_core.build_boxes(result, design_ir,
+                                           json.load(open(os.path.join(folder, 'impl.ir.json'), encoding='utf-8')))
+    json.dump(dboxes, open(os.path.join(folder, '_dboxes.json'), 'w'))
+    json.dump(iboxes, open(os.path.join(folder, '_iboxes.json'), 'w'))
+    ann = os.path.join(ROOT, 'core', 'annotate.js')
+    di = ['node', ann, '--url', a.url, '--boxes', os.path.join(folder, '_iboxes.json'),
+          '--out', os.path.join(folder, 'implementation.png'), '--width', str(width)]
+    if a.basic_auth: di += ['--basic-auth', a.basic_auth]
+    subprocess.check_call(di)
+    subprocess.check_call(['node', ann, '--image', raster + '.png', '--boxes', os.path.join(folder, '_dboxes.json'),
+                           '--out', os.path.join(folder, 'design.png'), '--width', str(width)])
+
+    # ⑥ run.json + todos
+    todos = hifi_core.todos_from_diff(result)
+    design_png = os.path.join(folder, 'design.png')
+    impl_png = os.path.join(folder, 'implementation.png')
+    run_meta = {'project': a.project, 'stamp': stamp, 'scale': result['scale'],
+                'urls': {'implementation': a.url, 'design_source': os.path.abspath(a.design_idml)},
+                'paths': {'folder': folder, 'design': design_png, 'implementation': impl_png,
+                          'report': os.path.join(folder, 'REPORT.md')},
+                'todos': todos}
+    json.dump(run_meta, open(os.path.join(folder, 'run.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+
+    # chat summary
+    counts = {'pass': 0, 'warn': 0, 'fail': 0}
+    for r in result['rows']: counts[r['worst']] += 1
+    print('\n=== Hi-Fidelity-Design · Run ===')
+    print(f"{counts['pass']} pass · {counts['warn']} warn · {counts['fail']} fail   (scale ×{result['scale']})\n")
+    print('Bilder (Design | Implementierung, beide mit Observation-Labels):')
+    print(f'  {design_png}')
+    print(f'  {impl_png}')
+    print('\nURLs:')
+    print(f'  Implementierung: {a.url}')
+    print(f'  Design-Quelle:   {os.path.abspath(a.design_idml)}')
+    print('\nTodos für die Updates:')
+    for t in todos: print(f'  - {t}')
+    if not todos: print('  (keine — alles innerhalb Toleranz)')
+    print(f'\nRun-Ordner: {folder}')
+
+
 def main():
     ap = argparse.ArgumentParser(prog='hifi', description='Hi-Fidelity-Design: design ↔ implementation audit')
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -43,6 +114,17 @@ def main():
     d.add_argument('--map', required=True)
     d.add_argument('--out', default='audit')
     d.set_defaults(fn=cmd_diff)
+
+    r = sub.add_parser('run', help='end-to-end audit → run folder (2 annotated images) + chat summary')
+    r.add_argument('--design-idml', required=True, dest='design_idml')
+    r.add_argument('--design-pdf', required=True, dest='design_pdf', help='same comp as PDF (rasterized as the design image)')
+    r.add_argument('--url', required=True)
+    r.add_argument('--map', required=True)
+    r.add_argument('--project', default='run')
+    r.add_argument('--basic-auth', dest='basic_auth')
+    r.add_argument('--width', type=int)
+    r.add_argument('--out-base', dest='out_base', default='runs')
+    r.set_defaults(fn=cmd_run)
 
     a = ap.parse_args()
     a.fn(a)

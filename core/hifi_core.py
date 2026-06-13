@@ -172,6 +172,71 @@ def report_md(result, design_ir, impl_ir):
     return '\n'.join(lines) + '\n'
 
 
+CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳'
+
+
+def label_for(i):
+    return CIRCLED[i] if i < len(CIRCLED) else f'[{i+1}]'
+
+
+def _short_caption(props):
+    """Compact per-element caption for the marker."""
+    bits = []
+    for name, p in props.items():
+        if p['verdict'] == 'pass':
+            continue
+        if 'deltaPx' in p:
+            bits.append(f"{name} {p['deltaPx']:+.0f}px")
+        elif 'deltaE' in p and p['deltaE'] is not None:
+            bits.append(f"ΔE{p['deltaE']:.1f}")
+        elif 'deltaPct' in p:
+            bits.append(f"{name} {p['deltaPct']:+.0f}%")
+    return ' · '.join(bits[:3])
+
+
+def build_boxes(result, design_ir, impl_ir):
+    """Marker boxes for both sides, sharing the same label index. Returns (design_boxes, impl_boxes)."""
+    didx_id, didx_txt = index(design_ir)
+    iidx_id, _ = index(impl_ir)
+    dboxes, iboxes = [], []
+    for i, r in enumerate(result['rows']):
+        lab = label_for(i)
+        cap = _short_caption(r.get('props', {})) or r.get('error', '')
+        d = find_design((didx_id, didx_txt), r['design'])
+        im = iidx_id.get(r['impl'])
+        if d and d.get('bounds'):
+            b = d['bounds']
+            dboxes.append({'x': b['x'], 'y': b['y'], 'w': b['w'], 'h': b['h'],
+                           'label': lab, 'verdict': r['worst'], 'caption': cap})
+        if im and im.get('bounds') and not im.get('missing'):
+            b = im['bounds']
+            iboxes.append({'x': b['x'], 'y': b['y'], 'w': b['w'], 'h': b['h'],
+                           'label': lab, 'verdict': r['worst'], 'caption': cap})
+    return dboxes, iboxes
+
+
+def todos_from_diff(result):
+    """Human, actionable update todos derived from warn/fail props."""
+    todos = []
+    for i, r in enumerate(result['rows']):
+        lab = label_for(i)
+        name = r['design']
+        if r.get('error'):
+            todos.append(f"{lab} {name}: {r['error']} — Mapping/Selector prüfen")
+            continue
+        for prop, p in r.get('props', {}).items():
+            if p['verdict'] == 'pass':
+                continue
+            sev = '❌' if p['verdict'] == 'fail' else '⚠️'
+            if prop == 'color':
+                todos.append(f"{lab} {sev} {name}: Farbe {p['impl']} → {p['design']} (ΔE {p['deltaE']})")
+            elif prop == 'fontSize':
+                todos.append(f"{lab} {sev} {name}: font-size {p['impl']}px → {p['design']}px ({p['deltaPx']:+.0f})")
+            elif prop in ('width', 'height'):
+                todos.append(f"{lab} {sev} {name}: {prop} {p['impl']}px vs Soll {p['design']}px ({p['deltaPct']:+.0f}%)")
+    return todos
+
+
 def run_diff(design_path, impl_path, mapping_path, out_dir):
     design_ir = json.load(open(design_path, encoding='utf-8'))
     impl_ir = json.load(open(impl_path, encoding='utf-8'))

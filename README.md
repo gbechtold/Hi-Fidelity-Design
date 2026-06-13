@@ -48,6 +48,22 @@ python3 bin/hifi diff design.ir.json impl.ir.json \
 
 `audit/REPORT.md` is sorted by largest delta; exit code is non-zero if any element fails.
 
+### One-shot run (folder + two labeled images + chat summary)
+
+```bash
+python3 bin/hifi run \
+  --design-idml comp.idml --design-pdf comp.pdf \
+  --url https://staging.example.com/ --map mapping.json \
+  --project myproject --basic-auth user:pass --out-base runs/
+```
+
+Produces a timestamped folder `runs/YYMMDD-HHMM-myproject/` containing **both visuals
+with numbered observation labels** — `design.png` (the comp, rasterized + labeled) and
+`implementation.png` (the live page, labeled) — plus `diff.json`, `REPORT.md`, `run.json`.
+The CLI prints the two image paths, the URLs and the **update todos** derived from the
+failing/warning deltas. Each label (①②③ …) marks the same element on both images, colored
+by verdict (green/orange/red).
+
 ## Adapters
 
 | Adapter | Side | Tier | Status |
