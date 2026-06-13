@@ -126,6 +126,19 @@ def main():
     r.add_argument('--out-base', dest='out_base', default='runs')
     r.set_defaults(fn=cmd_run)
 
+    ch = sub.add_parser('check', help='evaluiere ein deklaratives Regelset (checks) gegen Design+Impl IR')
+    ch.add_argument('design'); ch.add_argument('impl')
+    ch.add_argument('--rules', required=True)
+    ch.add_argument('--out', default='checks')
+    def _cmd_check(a2):
+        import hifi_core
+        result, md = hifi_core.run_checks(a2.design, a2.impl, a2.rules, a2.out)
+        print(md)
+        fails = sum(1 for r in result['checks'] if r['verdict'] == 'fail')
+        print(f"\nWritten: {a2.out}/checks.json + CHECKS.md")
+        sys.exit(1 if fails else 0)
+    ch.set_defaults(fn=_cmd_check)
+
     a = ap.parse_args()
     a.fn(a)
 

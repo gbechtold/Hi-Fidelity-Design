@@ -1,0 +1,19 @@
+{
+  "_comment": "Hero-Regelset Indie Wandern. designRef = Text/ID im Design-IR, target = CSS-Selector im Impl-IR. scale auto = impl/design canvasWidth.",
+  "role": "hero",
+  "scale": "auto",
+  "checks": [
+    { "id": "headline-size",      "dim": "scalar",      "target": ".iw-hero__title", "designRef": "wandern macht glücklich", "metric": "fontSize",        "op": "delta", "tol": [3, 8] },
+    { "id": "headline-color",     "dim": "color",       "target": ".iw-hero__title", "expected": "#F5EFE7",                                              "tol": [2, 5] },
+    { "id": "headline-lineheight","dim": "scalar",      "target": ".iw-hero__title", "metric": "lineHeightRatio", "expected": 0.867,                     "op": "delta", "tol": [0.06, 0.12] },
+    { "id": "headline-transform", "dim": "categorical", "target": ".iw-hero__title", "metric": "transform", "op": "eq", "expected": "uppercase" },
+    { "id": "highlight-num-size", "dim": "scalar",      "target": ".iw-hl__num", "designRef": "01 Es moluptatem", "metric": "fontSize",                  "op": "delta", "tol": [3, 6] },
+    { "id": "highlight-num-color","dim": "color",       "target": ".iw-hl__num", "expected": "#F5EFE7",                                                  "tol": [2, 5] },
+    { "id": "highlight-font",     "dim": "categorical", "target": ".iw-hl__num", "metric": "fontFamily", "op": "contains", "expected": "hoss-sharp" },
+    { "id": "highlight-col-width","dim": "relational",
+      "a": { "target": ".iw-hero__hl .wp-block-column", "metric": "width" },
+      "b": { "target": ".iw-hero__title", "metric": "width" },
+      "expected": [0.22, 0.30] },
+    { "id": "burger-morph",       "dim": "behavioral",  "target": ".iw-burger", "note": "State open → is-x + aria-expanded; reduced-motion-safe (Interaktions-Capture nötig)" }
+  ]
+}

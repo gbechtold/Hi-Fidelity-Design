@@ -237,6 +237,154 @@ def todos_from_diff(result):
     return todos
 
 
+# =========================================================================
+#  CHECKS-ENGINE — deklaratives Regelset pro Element/Rolle.
+#  Dimensionen: scalar | categorical | color | relational | structural | behavioral
+#  Jede Regel deklariert ihre Messbarkeit; structural/behavioral = needs-modality.
+# =========================================================================
+
+_NUMERIC_GEO = {'fontSize', 'lineHeight', 'letterSpacing', 'width', 'height', 'x', 'y'}
+
+
+def metric_value(el, metric):
+    """Holt einen Metrik-Wert aus einem IR-Element. Liefert (wert, ist_numerisch_geo)."""
+    if el is None:
+        return None, False
+    t = el.get('typography', {}) or {}
+    b = el.get('bounds', {}) or {}
+    col = el.get('color', {}) or {}
+    if metric in ('fontSize', 'lineHeight', 'letterSpacing', 'weight', 'fontFamily', 'fontStyle', 'transform'):
+        v = t.get(metric)
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            pass
+        return v, metric in _NUMERIC_GEO
+    if metric in ('width', 'height', 'x', 'y'):
+        return b.get({'width': 'w', 'height': 'h', 'x': 'x', 'y': 'y'}[metric]), True
+    if metric == 'color':
+        return col.get('fill'), False
+    if metric == 'lineHeightRatio':           # abgeleitet, einheitenlos → kein Scale
+        fs = t.get('fontSize'); lh = t.get('lineHeight')
+        try:
+            return (float(lh) / float(fs)) if (fs and lh) else None, False
+        except (TypeError, ValueError, ZeroDivisionError):
+            return None, False
+    return None, False
+
+
+def eval_checks(design_ir, impl_ir, rules):
+    tol_def = {'scalar': [2, 5], 'color': [2, 5], 'ratio': [0.05, 0.12]}
+    dw = design_ir['meta'].get('canvasWidth'); iw = impl_ir['meta'].get('canvasWidth')
+    scale = rules.get('scale')
+    if scale in (None, 'auto'):
+        scale = (iw / dw) if (dw and iw) else 1.0
+    didx = index(design_ir); iidx_id, _ = index(impl_ir)
+
+    def impl_el(sel): return iidx_id.get(sel)
+    def design_el(ref): return find_design(didx, ref) if ref else None
+
+    out = []
+    for c in rules.get('checks', []):
+        dim = c.get('dim')
+        row = {'id': c.get('id', dim), 'dim': dim, 'target': c.get('target'), 'verdict': 'pass', 'detail': ''}
+
+        if dim in ('structural', 'behavioral'):
+            row['verdict'] = 'pending'
+            row['detail'] = c.get('note', 'needs-modality: ' + ('Shape-Deskriptor' if dim == 'structural' else 'Interaktions-Capture'))
+            out.append(row); continue
+
+        # Top-Level-Target nur für element-bezogene Dims (relational nutzt a/b)
+        if dim in ('scalar', 'categorical', 'color'):
+            im = impl_el(c.get('target'))
+            if im is None or im.get('missing'):
+                row['verdict'] = 'fail'; row['detail'] = 'impl-Selector nicht gefunden'; out.append(row); continue
+
+        if dim == 'scalar':
+            metric = c['metric']
+            iv, is_geo = metric_value(im, metric)
+            if 'expected' in c:
+                ev = c['expected']
+            else:
+                dv, dgeo = metric_value(design_el(c.get('designRef')), metric)
+                ev = (dv * scale) if (dv is not None and is_geo) else dv
+            if iv is None or ev is None:
+                row['verdict'] = 'fail'; row['detail'] = f'{metric}: Wert fehlt (design={ev}, impl={iv})'
+            else:
+                tol = c.get('tol', tol_def['scalar'])
+                delta = iv - ev
+                row['verdict'] = verdict(delta, tol[0], tol[1])
+                row['detail'] = f'{metric}: soll {round(ev,2)} · ist {round(iv,2)} · Δ {delta:+.2f}'
+
+        elif dim == 'color':
+            iv, _ = metric_value(im, 'color')
+            ev = c.get('expected') or metric_value(design_el(c.get('designRef')), 'color')[0]
+            de = delta_e(ev, iv)
+            tol = c.get('tol', tol_def['color'])
+            row['verdict'] = 'fail' if de is None else verdict(de, tol[0], tol[1])
+            row['detail'] = f'Farbe: soll {ev} · ist {iv} · ΔE {de}'
+
+        elif dim == 'categorical':
+            iv, _ = metric_value(im, c['metric'])
+            ev = c.get('expected')
+            op = c.get('op', 'eq')
+            ivs = str(iv).lower(); evs = str(ev).lower()
+            ok = (evs in ivs) if op == 'contains' else (ivs == evs)
+            row['verdict'] = 'pass' if ok else 'fail'
+            row['detail'] = f'{c["metric"]}: soll {op} "{ev}" · ist "{iv}"'
+            if c.get('lint') == 'realFaceExists' and c.get('realFaces') is not None:
+                fam = (metric_value(im, 'fontFamily')[0] or '').split(',')[0].strip().strip('"').lower()
+                style = (metric_value(im, 'fontStyle')[0] or 'normal')
+                has = any(f.lower() == fam and s == style for f, s in c['realFaces'])
+                if not has:
+                    row['verdict'] = 'warn' if row['verdict'] == 'pass' else row['verdict']
+                    row['detail'] += f' · ⚠ kein echter Schnitt ({fam} {style}) → faux'
+
+        elif dim == 'relational':
+            a = c['a']; b = c['b']
+            av, ageo = metric_value(impl_el(a['target']) or design_el(a.get('designRef')), a['metric'])
+            bv, bgeo = metric_value(impl_el(b['target']) or design_el(b.get('designRef')), b['metric'])
+            if av is None or bv is None or not bv:
+                row['verdict'] = 'fail'; row['detail'] = f'relational: Wert fehlt (a={av}, b={bv})'
+            else:
+                ratio = av / bv
+                lo, hi = c.get('expected', [0, 99])
+                row['verdict'] = 'pass' if lo <= ratio <= hi else ('warn' if lo * .8 <= ratio <= hi * 1.2 else 'fail')
+                row['detail'] = f'{a["metric"]}/{b["metric"]} = {ratio:.2f} · soll ∈ [{lo},{hi}]'
+        else:
+            row['verdict'] = 'pending'; row['detail'] = f'unbekannte dim: {dim}'
+        out.append(row)
+    return {'scale': round(scale, 4), 'checks': out}
+
+
+def report_checks_md(result, design_ir, impl_ir):
+    ic = {'pass': '✅', 'warn': '⚠️', 'fail': '❌', 'pending': '🔌'}
+    counts = {}
+    for r in result['checks']:
+        counts[r['verdict']] = counts.get(r['verdict'], 0) + 1
+    head = ' · '.join(f"{counts.get(k,0)} {k}" for k in ['pass', 'warn', 'fail', 'pending'])
+    lines = ['# Hi-Fidelity-Design — Checks', '',
+             f"Design `{design_ir['meta']['source']}` ({design_ir['meta'].get('canvasWidth')}{design_ir['meta']['unit']}) · "
+             f"Impl `{impl_ir['meta']['source']}` ({impl_ir['meta'].get('canvasWidth')}px) · scale ×{result['scale']}",
+             '', f'**{head}**', '', '| | Check | Dim | Detail |', '|---|---|---|---|']
+    sev = {'fail': 0, 'warn': 1, 'pending': 2, 'pass': 3}
+    for r in sorted(result['checks'], key=lambda x: sev.get(x['verdict'], 9)):
+        lines.append(f"| {ic.get(r['verdict'],'?')} | {r['id']} | {r['dim']} | {r['detail']} |")
+    return '\n'.join(lines) + '\n'
+
+
+def run_checks(design_path, impl_path, rules_path, out_dir):
+    design_ir = json.load(open(design_path, encoding='utf-8'))
+    impl_ir = json.load(open(impl_path, encoding='utf-8'))
+    rules = json.load(open(rules_path, encoding='utf-8'))
+    result = eval_checks(design_ir, impl_ir, rules)
+    os.makedirs(out_dir, exist_ok=True)
+    json.dump(result, open(os.path.join(out_dir, 'checks.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=2)
+    md = report_checks_md(result, design_ir, impl_ir)
+    open(os.path.join(out_dir, 'CHECKS.md'), 'w', encoding='utf-8').write(md)
+    return result, md
+
+
 def run_diff(design_path, impl_path, mapping_path, out_dir):
     design_ir = json.load(open(design_path, encoding='utf-8'))
     impl_ir = json.load(open(impl_path, encoding='utf-8'))

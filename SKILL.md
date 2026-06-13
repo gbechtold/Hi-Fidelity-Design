@@ -72,6 +72,27 @@ report never claims "pixel perfect" where a value was actually estimated.
 6. **Iterate** — fix CSS → re-run → deltas shrink → converge. Done = 0 fail, warns
    consciously accepted.
 
+## Checks — declarative rule set (per element / role)
+
+Beyond the pair-diff, `bin/hifi check` evaluates a **rule set**: each check is
+`{ target, dim, op, expected, tol }`. Dimensions:
+
+- `scalar` — numeric (fontSize, width, `lineHeightRatio`…) → delta + tolerance
+- `categorical` — fontFamily/fontStyle/transform → eq/contains (+ optional `realFaceExists` lint)
+- `color` — CIEDE2000 ΔE
+- `relational` — ratio between two elements (`a.metric / b.metric` ∈ band) — scale-robust
+- `structural` / `behavioral` — shape / state-on-interaction → reported as `pending` (needs a
+  shape-descriptor resp. interaction-capture evaluator; honest measurability)
+
+`expected` comes from the design IR (`designRef`) or a literal/band. Rules attach per element
+or per **role** (reuse a bundle of checks across many elements). Run:
+
+```bash
+python3 bin/hifi check design.ir.json impl.ir.json --rules rules.json --out checks/
+```
+→ `checks/CHECKS.md` sorted by severity; each row carries its verdict (✅/⚠️/❌/🔌-pending).
+Example rule set: `examples/indie-wandern.hero.checks.json`.
+
 ## Tolerances (per measurement class)
 
 - Geometry: ✅ ±2 % · ⚠️ 2–5 % · ❌ >5 %
